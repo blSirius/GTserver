@@ -56,7 +56,30 @@ app.get('/getFaceDetected', async (req, res) => {
   }
 });
 
+
+
 /*          Web App            */
+
+app.get('/getFaceDetectedHome', async (req, res) => {
+  // Format today's date as D/M/YYYY (without leading zeros for day and month)
+  const today = new Date();
+  const formattedDate = [
+    today.getDate(), // Day without leading zero
+    today.getMonth() + 1, // Month without leading zero (January is 0!)
+    today.getFullYear(),
+  ].join('/');
+
+  try {
+    const query = "SELECT * FROM face_detection WHERE name != 'unknown' AND date = $1 ORDER BY id DESC";
+    const result = await pool.query(query, [formattedDate]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching face detections:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
 
 app.post('/register', async (req, res) => {
   const { username, password, status } = req.body;
@@ -138,8 +161,8 @@ app.get('/getEmployee', async (req, res) => {
   }
 });
 
-app.get('/getEmployeeDetail/:iid', async (req, res) => {
-  const empID = parseInt(req.params.iid, 10); // Parse empID to an integer
+app.get('/getEmployeeDetail/:id', async (req, res) => {
+  const empID = parseInt(req.params.id, 10); // Parse empID to an integer
   try {
     const result = await pool.query('SELECT * FROM employee WHERE employee_id = $1', [empID]);
     if (result.rows.length === 0) {
@@ -151,6 +174,36 @@ app.get('/getEmployeeDetail/:iid', async (req, res) => {
     res.status(500).send(error.message);
   }
 });
+app.get('/getEmpDetect/:name', async (req, res) => {
+  const name = req.params.name;
+  try {
+    const result = await pool.query('SELECT * FROM face_detection WHERE name = $1', [name]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching face detections:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// app.get('/getImageFolder/:name', (req, res) => {
+//   const name = decodeURIComponent(req.params.name);
+//   const dirPath = path.join(__dirname, 'labels', name);
+
+//   fs.readdir(dirPath, (err, files) => {
+//     if (err) {
+//       console.error('Error reading directory:', dirPath);
+//       return res.status(500).json({ error: 'Failed to read directory' });
+//     }
+
+//     // Filter out non-image files if necessary, assuming PNG images for simplicity
+//     const imageFiles = files.filter(file => file.endsWith('.png'));
+
+//     // Convert file names to URLs
+//     const imageUrls = imageFiles.map(file => `http://localhost:3000/labels/${encodeURIComponent(name)}/${file}`);
+
+//     res.json(imageUrls);
+//   });
+// });
 
 app.delete('/deleteEmployee/:id', async (req, res) => {
   const empID = parseInt(req.params.id, 10);
