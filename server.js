@@ -133,12 +133,12 @@ app.post('/decodeToken', (req, res) => {
 });
 
 app.post('/createEmployee', async (req, res) => {
-  const { name, username, email } = req.body;
+  const { name } = req.body;
 
   try {
     // Note: email field added to match the first version
-    const result = await pool.query('INSERT INTO employee (employee_name, employee_username, employee_email, employee_picpath) VALUES ($1, $2, $3, $4) RETURNING *',
-      [name, username, email, name]); // Assuming employee_picpath is intended to store the name for simplicity.
+    const result = await pool.query('INSERT INTO employee (employee_name, employee_picpath) VALUES ($1, $2) RETURNING *',
+      [name, name]); // Assuming employee_picpath is intended to store the name for simplicity.
 
     console.log(result);
 
