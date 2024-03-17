@@ -4,12 +4,11 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { log } = require('console');
-
 const app = express();
-const port = 3000;
+require('dotenv').config()
+
+const port = process.env.ENV_SERVER_PORT;
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -19,67 +18,25 @@ app.use(express.json());
 
 const secretKey = 'PeemSecert';
 
-// PostgreSQL configuration
-const pool = new Pool({
-  user: 'fuvesvmt',
-  host: 'hansken.db.elephantsql.com',
-  database: 'fuvesvmt',
-  password: 'g4EZeujJI54nL2Jum3MNhglHEvJD4vvU',
-  port: 5432,
-});
-
-/*         Kiosk               */
-
-app.post('/postFaceDetected', async (req, res) => {
-  const { name, expression, age, gender, single_img, date, time } = req.body;
-  try {
-    const get_greeting = await pool.query("SELECT greeting FROM expression WHERE emotion = $1 ORDER BY RANDOM() LIMIT 1", [expression]);
-    const greeting = get_greeting.rows[0].greeting;
-    const result = await pool.query(
-      'INSERT INTO face_detection (name, expression, age, gender, single_img, date, time, greeting) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [name, expression, age, gender, single_img, date, time, greeting]
-    );
-    res.json('postFaceDetected successfully');
-  } catch (err) {
-    console.log(err);
-    res.status(500).send(err);
-  }
-});
-
-app.get('/getFaceDetected', async (req, res) => {
-  try {
-    const result = await pool.query("SELECT * FROM face_detection WHERE name != 'unknown' ORDER BY id DESC LIMIT 5");
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Error fetching face detections:', err);
-    res.status(500).json({ error: 'Internal Server Error' });
-  }
-});
-
-
-
-/*          Web App            */
-
 app.get('/getFaceDetectedHome', async (req, res) => {
   // Format today's date as D/M/YYYY (without leading zeros for day and month)
   const today = new Date();
   const formattedDate = [
-    today.getDate(), // Day without leading zero
-    today.getMonth() + 1, // Month without leading zero (January is 0!)
+    today.getDate() - 1, // Adjusting day to yesterday
+    today.getMonth() + 1, // Adjusting month since January is 0
     today.getFullYear(),
-  ].join('/');
-
+  ].map(component => component.toString().padStart(2, '0')).join('/');
+  console.log(formattedDate)
   try {
-    const query = "SELECT * FROM face_detection WHERE name != 'unknown' AND date = $1 ORDER BY id DESC";
-    const result = await pool.query(query, [formattedDate]);
-    res.json(result.rows);
+    const query = "SELECT * FROM face_detection WHERE name != 'unknown' AND date = ? ORDER BY id DESC";
+    const result = await mysqlDB.query(query, [formattedDate]);
+    console.log(result)
+    res.json(result);
   } catch (err) {
     console.error('Error fetching face detections:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
-
-
 
 app.post('/register', async (req, res) => {
   const { username, password, status } = req.body;
@@ -98,13 +55,16 @@ app.post('/register', async (req, res) => {
   }
 });
 
+const mysqlDB = require('./database/mysql');
+
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const result = await pool.query('SELECT * FROM authentication WHERE username = $1 AND password = $2', [username, password]);
-    
-    if (result.rows.length === 0) {
+    const query = 'SELECT * FROM authentication WHERE username = ? AND password = ?';
+    const result = await mysqlDB.query(query, [username, password]);
+
+    if (result.length === 0) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
@@ -112,7 +72,7 @@ app.post('/login', async (req, res) => {
 
     res.json({ message: 'Login successful', token: token });
   } catch (error) {
-    console.error('Error during login:', error);
+    console.error('Error during login:', error.message);
     res.status(500).send('Internal Server Error');
   }
 });
@@ -132,17 +92,17 @@ app.post('/decodeToken', (req, res) => {
   });
 });
 
-app.post('/createEmployee', async (req, res) => {
-  const { name } = req.body;
+app.post('/createEmployee/:name', async (req, res) => {
+  const name = req.params.name;
 
+  console.log(name)
   try {
-    // Note: email field added to match the first version
-    const result = await pool.query('INSERT INTO employee (employee_name, employee_picpath) VALUES ($1, $2) RETURNING *',
-      [name, name]); // Assuming employee_picpath is intended to store the name for simplicity.
+    const query = 'INSERT INTO employee ( employee_name) VALUES ( ?)'
+    const result = await mysqlDB.query(query, [name]);
 
     console.log(result);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(result);
   }
   catch (err) {
     console.error('Error during createEmployee:', err);
@@ -152,12 +112,18 @@ app.post('/createEmployee', async (req, res) => {
 
 app.get('/getEmployee', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM employee');
-    console.log(result.rows);
-    res.status(201).json(result.rows);
-  }
-  catch (error) {
-    res.status(500).send(error.message);
+    // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
+    mysqlDB.query('SELECT * FROM employee', (error, results, fields) => {
+      if (error) {
+        console.error(error);
+        return res.status(500).send('Internal Server Error');
+      }
+      // console.log(results);
+      res.status(200).json(results); // Changed status code to 200 for successful retrieval
+    });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    res.status(500).send('Internal Server Error');
   }
 });
 
@@ -174,36 +140,111 @@ app.get('/getEmployeeDetail/:id', async (req, res) => {
     res.status(500).send(error.message);
   }
 });
+
 app.get('/getEmpDetect/:name', async (req, res) => {
-  const name = req.params.name;
+  // Split the 'name' parameter into an array of names assuming they are separated by a comma
+  const names = req.params.name.split(',');
+  console.log(names)
   try {
-    const result = await pool.query('SELECT * FROM face_detection WHERE name = $1', [name]);
-    res.json(result.rows);
+    let results = [];
+
+    for (const name of names) {
+      // Trim the name to remove any whitespace
+      const trimmedName = name.trim();
+
+      let query;
+      let queryParams;
+
+      // Check if 'name' contains '.png' to decide on the query
+      if (trimmedName.includes('.png') || trimmedName.includes('.jpg')) {
+        query = 'SELECT * FROM face_detection WHERE face_detection.path = ?';
+        queryParams = [trimmedName];
+      } else {
+        query = 'SELECT * FROM face_detection WHERE face_detection.name LIKE ? OR face_detection.name = ?';
+        queryParams = [`%${trimmedName}%`, trimmedName];
+      }
+
+      // Run the query and collect the results
+      // console.log(query)
+      const result = await mysqlDB.query(query, queryParams);
+      if (result.length) {
+        results = results.concat(result); // Concatenate the result arrays
+      }
+    }
+
+    // console.log(results);
+    res.json(results);
   } catch (err) {
     console.error('Error fetching face detections:', err);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// app.get('/getImageFolder/:name', (req, res) => {
-//   const name = decodeURIComponent(req.params.name);
-//   const dirPath = path.join(__dirname, 'labels', name);
+app.get('/getAllhistory', async (req, res) => {
+  try {
+    mysqlDB.query('SELECT * FROM face_detection WHERE name != "unknown"', (error, results, fields) => {
+      if (error) {
+        console.error(error);
+        return res.status(500).send('Internal Server Error');
+      }
+      // console.log(results);
+      res.status(200).json(results); // Changed status code to 200 for successful retrieval
+    });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    res.status(500).send('Internal Server Error');
+  }
+})
 
-//   fs.readdir(dirPath, (err, files) => {
-//     if (err) {
-//       console.error('Error reading directory:', dirPath);
-//       return res.status(500).json({ error: 'Failed to read directory' });
-//     }
 
-//     // Filter out non-image files if necessary, assuming PNG images for simplicity
-//     const imageFiles = files.filter(file => file.endsWith('.png'));
 
-//     // Convert file names to URLs
-//     const imageUrls = imageFiles.map(file => `http://localhost:3000/labels/${encodeURIComponent(name)}/${file}`);
+app.get('/getAllhistoryByDate', async (req, res) => {
 
-//     res.json(imageUrls);
-//   });
-// });
+  const today = new Date().toISOString().slice(0, 10); // No need to convert to DD/MM/YYYY here, SQL will handle it.
+  
+  function formatDateToDDMMYYYY(dateString) {
+    if (typeof dateString !== 'string' || !dateString) {
+      return null;
+    }
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  // console.log('Today is : '+formatDateToDDMMYYYY(today))
+
+  let { dateStart, dateStop } = req.query;
+  dateStart = typeof dateStart === 'string' ? formatDateToDDMMYYYY(dateStart) : null;
+  dateStop = typeof dateStop === 'string' ? formatDateToDDMMYYYY(dateStop) : formatDateToDDMMYYYY(today);
+  
+  let queryParams = [];
+  let query = 'SELECT * FROM face_detection WHERE name != "unknown"';
+  
+  if (dateStart) {
+    query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
+    queryParams.push(dateStart);
+  }
+  
+  // Check for the presence of dateStop in the request, otherwise use today's date
+  if (!dateStop || dateStop === 'undefined/undefined/null') {
+    dateStop = formatDateToDDMMYYYY(today);
+  }
+  
+  query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
+  queryParams.push(dateStop);
+
+  // Debug logs
+  console.log('Query:', query);
+  console.log('Query Parameters:', queryParams);
+  
+  try {
+    const [results] = await mysqlDB.query(query, queryParams);
+    console.log('Query results:', results);
+    res.json(results);
+  } catch (error) {
+    console.error('Error during database query:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
 
 app.delete('/deleteEmployee/:id', async (req, res) => {
   const empID = parseInt(req.params.id, 10);
@@ -219,9 +260,86 @@ app.delete('/deleteEmployee/:id', async (req, res) => {
   }
 });
 
-/*       Folder Management         */
+app.use('/labels', express.static(path.join(process.cwd(), 'labels')));
+
+app.get('/api/labels', (req, res) => {
+  const labelsDir = path.join(process.cwd(), 'labels');
+  fs.readdir(labelsDir, { withFileTypes: true }, (err, files) => {
+    if (err) {
+      console.error(err);
+      res.status(500).send('Internal Server Error');
+      return;
+    }
+    const labels = files
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => {
+        const labelPath = path.join(labelsDir, dirent.name);
+        const images = fs.readdirSync(labelPath).filter(file => file.endsWith('.png') || file.endsWith('.jpg'));
+        return { label: dirent.name, imageCount: images.length };
+      });
+    res.json(labels);
+    // console.log('test')
+    // console.log(labels)
+  });
+});
+
+app.use('/api/detectedSingleFace', express.static(path.join(process.cwd(), 'unknownImgStore')));
+
+app.get('/api/detectedSingleFace/files', async (req, res) => {
+  const directoryPath = path.join(process.cwd(), 'unknownImgStore');
+  try {
+    const files = await fs.promises.readdir('unknownImgStore');
+    res.json(files);
+  } catch (error) {
+    console.error("Error reading directory", error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+app.get('/api/detectedSingleFace', async (req, res) => {
+  try {
+    // const directoryPath = path.join(process.cwd(), 'unknownImgStore');
+    const files = await fs.readdir('unknownImgStore');
+    // const files = await fs.readdir(directoryPath);
+    console.log(files)
+    res.json(files);
+  } catch (error) {
+    console.error("Error accessing the directory", error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+app.use('/labeled_images', express.static('knownImgStore'));
+
 app.use('/getImageFolder', express.static('labels'));
-app.use('/getDetectedSingleFaceFolder', express.static('detectedSingleFace'));
+app.use('/getDetectedSingleFaceKnown', express.static('knownImgStore'));
+
+const getFilesInDirectory = async (dirPath) => {
+  try {
+    const files = await fs.promises.readdir(dirPath);
+    return files.filter(file => path.extname(file).toLowerCase() === '.png');
+  } catch (error) {
+    console.error('Error reading directory:', error);
+    throw error;
+  }
+};
+
+app.get('/getFilePic/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const folderPath = path.join(process.cwd(), 'labels', name);
+
+    if (!fs.existsSync(folderPath)) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    const files = await getFilesInDirectory(folderPath);
+    res.json(files);
+  } catch (error) {
+    console.error('Error getting picture files:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 app.get('/getLabelFolder', (req, res) => {
   try {
@@ -236,40 +354,49 @@ app.get('/getLabelFolder', (req, res) => {
   }
 });
 
-app.post('/updateImageFolder', upload.single('labels'), async (req, res) => {
-  try {
-    const folderName = req.body.folderName || req.query.folderName || 'defaultFolder';
-    const folderPath = `labels/${folderName}`;
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, { recursive: true });
-    }
-    const files = fs.readdirSync(folderPath);
-    const newImageName = `${files.length + 1}.png`;
-    const imagePath = path.join(folderPath, newImageName);
-    fs.writeFileSync(imagePath, req.file.buffer);
-    res.json('Successfully uploaded');
-  } catch (error) {
-    console.error('Error uploading image:', error);
-    res.status(500).json({ error: 'Internal server error' });
+app.delete('/deleteImage/:name/:path', (req, res) => {
+  const { name, path: fileName } = req.params;
+  const imagePath = path.join(process.cwd(), 'labels', name, fileName);
+  console.log('path is: ')
+  console.log(imagePath)
+  // Check if the file exists
+  if (fs.existsSync(imagePath)) {
+    // Delete the file
+    fs.unlink(imagePath, (err) => {
+      if (err) {
+        console.error('Error deleting the file:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+      res.json({ message: 'File deleted successfully' });
+    });
+  } else {
+    res.status(404).json({ error: 'File not found' });
   }
 });
 
-app.post('/postDetectedSingleFaceFolder', upload.single('detectedSingleFace'), async (req, res) => {
+app.post('/updateImageFolder', upload.single('croppedImage'), (req, res) => {
   try {
-    const folderName = req.body.folderName || req.query.folderName || 'defaultFolder';
-    const folderPath = `detectedSingleFace/${folderName}`;
+    const folderName = req.body.folderName;
+    const buffer = req.file.buffer;
+    const folderPath = `labels/${folderName}`;
 
     if (!fs.existsSync(folderPath)) {
       fs.mkdirSync(folderPath, { recursive: true });
     }
 
-    const files = fs.readdirSync(folderPath);
-    const newImageName = `${files.length + 1}.png`;
+    // Generate a date-time string format YYYYMMDD-HHmmss
+    const dateTimeString = new Date().toISOString()
+      .replace(/T/, '-')      // Replace T with a dash
+      .replace(/\..+/, '')    // Delete the dot and everything after
+      .replace(/:/g, '');     // Remove colons
+
+    const newImageName = `${folderName}-${dateTimeString}.png`;
     const imagePath = path.join(folderPath, newImageName);
 
-    fs.writeFileSync(imagePath, req.file.buffer);
-    res.json(newImageName);
+    // Save buffer to file system
+    fs.writeFileSync(imagePath, buffer);
 
+    res.json({ message: 'Successfully uploaded', fileName: newImageName });
   } catch (error) {
     console.error('Error uploading image:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -278,4 +405,25 @@ app.post('/postDetectedSingleFaceFolder', upload.single('detectedSingleFace'), a
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
+});
+
+//get image from kiosk server
+
+const storager = (folder) => multer.diskStorage({
+  destination: (req, file, cb) => cb(null, folder),
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+
+const uploader = (folder) => multer({ storage: storager(folder) });
+
+app.post('/knownImageTransfer', uploader('knownImgStore').single('image'), (req, res) => {
+  res.send('File uploaded successfully');
+});
+
+app.post('/unknownImageTransfer', uploader('unknownImgStore').single('image'), (req, res) => {
+  res.send('File uploaded successfully');
+});
+
+app.post('/envImageTransfer', uploader('envImgStore').single('image'), (req, res) => {
+  res.send('File uploaded successfully');
 });
