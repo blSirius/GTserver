@@ -97,7 +97,7 @@ app.post('/createEmployee/:name', async (req, res) => {
 
   console.log(name)
   try {
-    const query = 'INSERT INTO employee ( employee_name) VALUES ( ?)'
+    const query = 'INSERT INTO employee ( employee_name,status) VALUES ( ?,"ON")'
     const result = await mysqlDB.query(query, [name]);
 
     console.log(result);
@@ -113,7 +113,23 @@ app.post('/createEmployee/:name', async (req, res) => {
 app.get('/getEmployee', async (req, res) => {
   try {
     // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
-    mysqlDB.query('SELECT * FROM employee', (error, results, fields) => {
+    mysqlDB.query('SELECT * FROM employee WHERE status = "ON"', (error, results, fields) => {
+      if (error) {
+        console.error(error);
+        return res.status(500).send('Internal Server Error');
+      }
+      // console.log(results);
+      res.status(200).json(results); // Changed status code to 200 for successful retrieval
+    });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+app.get('/getEmployeeOff', async (req, res) => {
+  try {
+    // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
+    mysqlDB.query('SELECT * FROM employee WHERE status = "OFF"', (error, results, fields) => {
       if (error) {
         console.error(error);
         return res.status(500).send('Internal Server Error');
@@ -127,16 +143,115 @@ app.get('/getEmployee', async (req, res) => {
   }
 });
 
-app.get('/getEmployeeDetail/:id', async (req, res) => {
-  const empID = parseInt(req.params.id, 10); // Parse empID to an integer
+app.get('/getUnknownDetect', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM employee WHERE employee_id = $1', [empID]);
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Employee not found' });
+    // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
+    mysqlDB.query('SELECT * FROM face_detection WHERE name = "unknown"', (error, results, fields) => {
+      if (error) {
+        console.error(error);
+        return res.status(500).send('Internal Server Error');
+      }
+      // console.log(results);
+      res.status(200).json(results); // Changed status code to 200 for successful retrieval
+    });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+app.post('/renameFolder', async (req, res) => {
+  const { oldName, newName } = req.body;
+  
+  // Define the full paths for the old and new folder names
+  const oldPath = path.join(process.cwd(), 'labels', oldName);
+  const newPath = path.join(process.cwd(), 'labels', newName);
+  fs.rename(oldPath, newPath, (err) => {
+      if (err) {
+          console.error(err);
+          res.status(500).send('Error renaming the folder.');
+      } else {
+          res.send('Folder renamed successfully.');
+      }
+  });
+});
+app.post('/updateEmployeeName', async (req, res) => {
+  const { oldName, newName } = req.body;
+
+ 
+  try {
+    const query = 'UPDATE employee SET employee_name = ? WHERE employee_name = ?';
+    const result = await mysqlDB.query(query, [newName, oldName]);
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Employee not found or name unchanged' });
     } else {
-      res.json(result.rows[0]);
+      res.json({ message: 'Employee name updated successfully' });
     }
   } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+app.post('/updateStatusDB', async (req, res) => {
+  const { folderName, status } = req.body;
+  console.log(folderName)
+  console.log(status)
+  try {
+    const query = 'UPDATE employee SET status = ? WHERE employee_name = ?';
+    const result = await mysqlDB.query(query, [status, folderName]);
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Employee not found or name unchanged' });
+    } else {
+      res.json({ message: 'Employee name updated successfully' });
+    }
+  } catch (error) {
+    res.status(500).send(error.message);
+  }
+});
+
+app.post('/changeStatus', (req, res) => {
+  const { folderName, status } = req.body;
+  let oldPath;
+  let newPath;
+
+  if (status === 'OFF') {
+    oldPath = path.join(process.cwd(), 'labels', folderName);
+    newPath = path.join(process.cwd(), 'statusoff', folderName);
+  } else if (status === 'ON') {
+    oldPath = path.join(process.cwd(), 'statusoff', folderName);
+    newPath = path.join(process.cwd(), 'labels', folderName);
+  } else {
+    return res.status(400).send('Invalid status value.');
+  }
+
+  fs.rename(oldPath, newPath, (err) => {
+    if (err) {
+      console.error(err);
+      res.status(500).send('An error occurred while moving the folder.');
+    } else {
+      res.send(`Folder moved to ${status === 'OFF' ? 'statusoff' : 'labels'} successfully.`);
+    }
+  });
+});
+
+
+
+app.get('/getEmployeeDetail/:name', async (req, res) => {
+  const name = req.params.name;
+  // console.log(typeof(name));
+  try {
+    const query = 'SELECT * FROM employee WHERE employee_name = ?';
+    const [rows] = await mysqlDB.query(query, [name]);
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Employee not found' });
+    } else {
+      // console.log(rows);
+      res.json(rows);
+    }
+  } catch (error) {
+    console.error(error);
     res.status(500).send(error.message);
   }
 });
@@ -144,7 +259,7 @@ app.get('/getEmployeeDetail/:id', async (req, res) => {
 app.get('/getEmpDetect/:name', async (req, res) => {
   // Split the 'name' parameter into an array of names assuming they are separated by a comma
   const names = req.params.name.split(',');
-  console.log(names)
+  // console.log(names)
   try {
     let results = [];
 
@@ -182,7 +297,7 @@ app.get('/getEmpDetect/:name', async (req, res) => {
 
 app.get('/getAllhistory', async (req, res) => {
   try {
-    mysqlDB.query('SELECT * FROM face_detection WHERE name != "unknown"', (error, results, fields) => {
+    mysqlDB.query('SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name WHERE name != "unknown" AND employee.status = "ON"', (error, results, fields) => {
       if (error) {
         console.error(error);
         return res.status(500).send('Internal Server Error');
@@ -211,12 +326,12 @@ app.get('/getAllhistoryByDate', async (req, res) => {
   }
   // console.log('Today is : '+formatDateToDDMMYYYY(today))
 
-  let { dateStart, dateStop } = req.query;
+  let { dateStart, dateStop,emotion } = req.query;
   dateStart = typeof dateStart === 'string' ? formatDateToDDMMYYYY(dateStart) : null;
   dateStop = typeof dateStop === 'string' ? formatDateToDDMMYYYY(dateStop) : formatDateToDDMMYYYY(today);
   
   let queryParams = [];
-  let query = 'SELECT * FROM face_detection WHERE name != "unknown"';
+  let query = 'SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name WHERE name != "unknown" AND employee.status = "ON"';
   
   if (dateStart) {
     query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
@@ -230,15 +345,22 @@ app.get('/getAllhistoryByDate', async (req, res) => {
   
   query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
   queryParams.push(dateStop);
-
-  // Debug logs
-  console.log('Query:', query);
-  console.log('Query Parameters:', queryParams);
-  
+  queryParams.push(emotion);
+  // console.log('Query:', query);
+  // console.log('Query Parameters:', queryParams);
+  mysqlDB.query
   try {
-    const [results] = await mysqlDB.query(query, queryParams);
-    console.log('Query results:', results);
-    res.json(results);
+    if(emotion){
+      query += ' AND face_detection.expression = ?'
+      const results = await mysqlDB.query(query, [queryParams[0],queryParams[1],queryParams[2]]);
+      res.json(results);
+    }else{
+      const results = await mysqlDB.query(query, [queryParams[0],queryParams[1]]);
+      res.json(results);
+    }
+    
+    // console.log('Query results:', results);
+    
   } catch (error) {
     console.error('Error during database query:', error);
     res.status(500).send('Internal Server Error');
@@ -278,8 +400,24 @@ app.get('/api/labels', (req, res) => {
         return { label: dirent.name, imageCount: images.length };
       });
     res.json(labels);
-    // console.log('test')
-    // console.log(labels)
+  });
+});
+app.get('/checknameOff', (req, res) => {
+  const labelsDir = path.join(process.cwd(), 'statusoff');
+  fs.readdir(labelsDir, { withFileTypes: true }, (err, files) => {
+    if (err) {
+      console.error(err);
+      res.status(500).send('Internal Server Error');
+      return;
+    }
+    const labels = files
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => {
+        const labelPath = path.join(labelsDir, dirent.name);
+        const images = fs.readdirSync(labelPath).filter(file => file.endsWith('.png') || file.endsWith('.jpg'));
+        return { label: dirent.name, imageCount: images.length };
+      });
+    res.json(labels);
   });
 });
 
@@ -317,7 +455,7 @@ app.use('/getDetectedSingleFaceKnown', express.static('knownImgStore'));
 const getFilesInDirectory = async (dirPath) => {
   try {
     const files = await fs.promises.readdir(dirPath);
-    return files.filter(file => path.extname(file).toLowerCase() === '.png');
+    return files.filter(file => path.extname(file).toLowerCase() === '.png'||'.jpg');
   } catch (error) {
     console.error('Error reading directory:', error);
     throw error;
@@ -390,7 +528,7 @@ app.post('/updateImageFolder', upload.single('croppedImage'), (req, res) => {
       .replace(/\..+/, '')    // Delete the dot and everything after
       .replace(/:/g, '');     // Remove colons
 
-    const newImageName = `${folderName}-${dateTimeString}.png`;
+    const newImageName = `${folderName}-${dateTimeString}.jpg`;
     const imagePath = path.join(folderPath, newImageName);
 
     // Save buffer to file system
