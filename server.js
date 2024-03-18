@@ -112,34 +112,40 @@ app.post('/createEmployee/:name', async (req, res) => {
 
 app.get('/getEmployee', async (req, res) => {
   try {
-    // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
-    mysqlDB.query('SELECT * FROM employee WHERE status = "ON"', (error, results, fields) => {
-      if (error) {
-        console.error(error);
-        return res.status(500).send('Internal Server Error');
-      }
-      // console.log(results);
-      res.status(200).json(results); // Changed status code to 200 for successful retrieval
-    });
+   
+    const { name } = req.query;
+    // console.log(name)
+    const placeholder = name ? `%${name}%` : '%';
+    const query = 'SELECT * FROM employee WHERE status = "ON" AND employee_name LIKE ?';
+    
+    const results = await mysqlDB.query(query, [placeholder]);
+
+    if (results.length === 0) {
+      res.status(404).json({ error: 'No employees found' });
+    } else {
+      res.json(results);
+    }
   } catch (error) {
-    console.error('Unexpected error:', error);
-    res.status(500).send('Internal Server Error');
+    res.status(500).send(error.message);
   }
 });
 app.get('/getEmployeeOff', async (req, res) => {
   try {
-    // Assuming mysqlDB is a pool or connection created with a MySQL client library like `mysql` or `mysql2`
-    mysqlDB.query('SELECT * FROM employee WHERE status = "OFF"', (error, results, fields) => {
-      if (error) {
-        console.error(error);
-        return res.status(500).send('Internal Server Error');
-      }
-      // console.log(results);
-      res.status(200).json(results); // Changed status code to 200 for successful retrieval
-    });
+   
+    const { name } = req.query;
+    console.log(name)
+    const placeholder = name ? `%${name}%` : '%';
+    const query = 'SELECT * FROM employee WHERE status = "OFF" AND employee_name LIKE ?';
+    
+    const results = await mysqlDB.query(query, [placeholder]);
+
+    if (results.length === 0) {
+      res.status(404).json({ error: 'No employees found' });
+    } else {
+      res.json(results);
+    }
   } catch (error) {
-    console.error('Unexpected error:', error);
-    res.status(500).send('Internal Server Error');
+    res.status(500).send(error.message);
   }
 });
 
@@ -162,23 +168,23 @@ app.get('/getUnknownDetect', async (req, res) => {
 
 app.post('/renameFolder', async (req, res) => {
   const { oldName, newName } = req.body;
-  
+
   // Define the full paths for the old and new folder names
   const oldPath = path.join(process.cwd(), 'labels', oldName);
   const newPath = path.join(process.cwd(), 'labels', newName);
   fs.rename(oldPath, newPath, (err) => {
-      if (err) {
-          console.error(err);
-          res.status(500).send('Error renaming the folder.');
-      } else {
-          res.send('Folder renamed successfully.');
-      }
+    if (err) {
+      console.error(err);
+      res.status(500).send('Error renaming the folder.');
+    } else {
+      res.send('Folder renamed successfully.');
+    }
   });
 });
 app.post('/updateEmployeeName', async (req, res) => {
   const { oldName, newName } = req.body;
 
- 
+
   try {
     const query = 'UPDATE employee SET employee_name = ? WHERE employee_name = ?';
     const result = await mysqlDB.query(query, [newName, oldName]);
@@ -195,8 +201,8 @@ app.post('/updateEmployeeName', async (req, res) => {
 
 app.post('/updateStatusDB', async (req, res) => {
   const { folderName, status } = req.body;
-  console.log(folderName)
-  console.log(status)
+  // console.log(folderName)
+  // console.log(status)
   try {
     const query = 'UPDATE employee SET status = ? WHERE employee_name = ?';
     const result = await mysqlDB.query(query, [status, folderName]);
@@ -316,7 +322,7 @@ app.get('/getAllhistory', async (req, res) => {
 app.get('/getAllhistoryByDate', async (req, res) => {
 
   const today = new Date().toISOString().slice(0, 10); // No need to convert to DD/MM/YYYY here, SQL will handle it.
-  
+
   function formatDateToDDMMYYYY(dateString) {
     if (typeof dateString !== 'string' || !dateString) {
       return null;
@@ -326,23 +332,23 @@ app.get('/getAllhistoryByDate', async (req, res) => {
   }
   // console.log('Today is : '+formatDateToDDMMYYYY(today))
 
-  let { dateStart, dateStop,emotion } = req.query;
+  let { dateStart, dateStop, emotion } = req.query;
   dateStart = typeof dateStart === 'string' ? formatDateToDDMMYYYY(dateStart) : null;
   dateStop = typeof dateStop === 'string' ? formatDateToDDMMYYYY(dateStop) : formatDateToDDMMYYYY(today);
-  
+
   let queryParams = [];
   let query = 'SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name WHERE name != "unknown" AND employee.status = "ON"';
-  
+
   if (dateStart) {
     query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
     queryParams.push(dateStart);
   }
-  
+
   // Check for the presence of dateStop in the request, otherwise use today's date
   if (!dateStop || dateStop === 'undefined/undefined/null') {
     dateStop = formatDateToDDMMYYYY(today);
   }
-  
+
   query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
   queryParams.push(dateStop);
   queryParams.push(emotion);
@@ -350,17 +356,17 @@ app.get('/getAllhistoryByDate', async (req, res) => {
   // console.log('Query Parameters:', queryParams);
   mysqlDB.query
   try {
-    if(emotion){
+    if (emotion) {
       query += ' AND face_detection.expression = ?'
-      const results = await mysqlDB.query(query, [queryParams[0],queryParams[1],queryParams[2]]);
+      const results = await mysqlDB.query(query, [queryParams[0], queryParams[1], queryParams[2]]);
       res.json(results);
-    }else{
-      const results = await mysqlDB.query(query, [queryParams[0],queryParams[1]]);
+    } else {
+      const results = await mysqlDB.query(query, [queryParams[0], queryParams[1]]);
       res.json(results);
     }
-    
+
     // console.log('Query results:', results);
-    
+
   } catch (error) {
     console.error('Error during database query:', error);
     res.status(500).send('Internal Server Error');
@@ -455,7 +461,7 @@ app.use('/getDetectedSingleFaceKnown', express.static('knownImgStore'));
 const getFilesInDirectory = async (dirPath) => {
   try {
     const files = await fs.promises.readdir(dirPath);
-    return files.filter(file => path.extname(file).toLowerCase() === '.png'||'.jpg');
+    return files.filter(file => path.extname(file).toLowerCase() === '.png' || '.jpg');
   } catch (error) {
     console.error('Error reading directory:', error);
     throw error;
