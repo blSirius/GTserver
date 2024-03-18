@@ -112,12 +112,12 @@ app.post('/createEmployee/:name', async (req, res) => {
 
 app.get('/getEmployee', async (req, res) => {
   try {
-   
+
     const { name } = req.query;
     // console.log(name)
     const placeholder = name ? `%${name}%` : '%';
     const query = 'SELECT * FROM employee WHERE status = "ON" AND employee_name LIKE ?';
-    
+
     const results = await mysqlDB.query(query, [placeholder]);
 
     if (results.length === 0) {
@@ -131,12 +131,12 @@ app.get('/getEmployee', async (req, res) => {
 });
 app.get('/getEmployeeOff', async (req, res) => {
   try {
-   
+
     const { name } = req.query;
     console.log(name)
     const placeholder = name ? `%${name}%` : '%';
     const query = 'SELECT * FROM employee WHERE status = "OFF" AND employee_name LIKE ?';
-    
+
     const results = await mysqlDB.query(query, [placeholder]);
 
     if (results.length === 0) {
@@ -261,38 +261,135 @@ app.get('/getEmployeeDetail/:name', async (req, res) => {
     res.status(500).send(error.message);
   }
 });
+app.get('/getExpression', async (req, res) => {
+  const sql = "SELECT DISTINCT emotion FROM expression";
+  try {
+    const emotions = await mysqlDB.query(sql);
+    res.json(emotions);
+  } catch (error) {
+    console.error('Database query error:', error);
+    res.status(500).send('Server error occurred.');
+  }
+});
 
+app.post('/addGreeting', async (req, res) => {
+  const { emotion, greeting } = req.body;
+  const sql = "INSERT INTO expression (emotion, greeting) VALUES (?, ?)";
+  try {
+    await mysqlDB.query(sql, [emotion, greeting]);
+    res.send('Greeting added successfully.');
+  } catch (error) {
+    console.error('Database insert error:', error);
+    res.status(500).send('Server error occurred.');
+  }
+});
+
+app.post('/getGreeting', async (req, res) => {
+  const { emotion } = req.body;
+  const sql = "SELECT * FROM expression WHERE emotion = ?";
+  try {
+    const greetings = await mysqlDB.query(sql, [emotion]);
+    res.json(greetings);
+  } catch (error) {
+    console.error('Database query error:', error);
+    res.status(500).send('Server error occurred.');
+  }
+});
+
+app.delete('/deleteGreeting', async (req, res) => {
+  const { emotion, greeting } = req.body;
+
+  try {
+    const checkSql = "SELECT COUNT(*) AS count FROM expression WHERE emotion = ?";
+    const [checkResults] = await mysqlDB.query(checkSql, [emotion]);
+    const count = Array.isArray(checkResults) ? checkResults[0].count : checkResults.count;
+
+    if (count > 1) {
+      const deleteSql = "DELETE FROM expression WHERE emotion = ? AND greeting = ?";
+      await mysqlDB.query(deleteSql, [emotion, greeting]);
+      res.send('Greeting deleted successfully.');
+    } else {
+      res.status(400).send('Cannot delete the only greeting for an emotion.');
+    }
+  } catch (error) {
+    console.error('Database delete error:', error);
+    res.status(500).send('Server error occurred.');
+  }
+});
 app.get('/getEmpDetect/:name', async (req, res) => {
   // Split the 'name' parameter into an array of names assuming they are separated by a comma
   const names = req.params.name.split(',');
   // console.log(names)
+  // console.log(names)
+  const today = new Date().toISOString().slice(0, 10); // No need to convert to DD/MM/YYYY here, SQL will handle it.
+
+  function formatDateToDDMMYYYY(dateString) {
+    if (typeof dateString !== 'string' || !dateString) {
+      return null;
+    }
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  let { dateStart, dateStop } = req.query;
+  dateStart = typeof dateStart === 'string' ? formatDateToDDMMYYYY(dateStart) : null;
+  dateStop = formatDateToDDMMYYYY(dateStop)
+  console.log(names)
+
+
+
   try {
     let results = [];
 
     for (const name of names) {
       // Trim the name to remove any whitespace
-      const trimmedName = name.trim();
-
-      let query;
-      let queryParams;
+      // console.log('Before Trim: ' + name)
+      console.log('NAMAA ' + name)
+      const trimmedName = name.split(' ');
+      const realname = trimmedName[0]
+      // console.log('After Trim: ' + realname)
+      // const trimmedName = trimmedName.trim();
+      // console.log(trimmedName)
+      let query = 'SELECT * FROM face_detection ';
+      let queryParams = [];
 
       // Check if 'name' contains '.png' to decide on the query
-      if (trimmedName.includes('.png') || trimmedName.includes('.jpg')) {
-        query = 'SELECT * FROM face_detection WHERE face_detection.path = ?';
-        queryParams = [trimmedName];
+      if (realname.includes('.png') || realname.includes('.jpg')) {
+        query += 'WHERE face_detection.path = ?';
+        queryParams.push(realname);
       } else {
-        query = 'SELECT * FROM face_detection WHERE face_detection.name LIKE ? OR face_detection.name = ?';
-        queryParams = [`%${trimmedName}%`, trimmedName];
+        query += 'WHERE face_detection.name LIKE ? OR face_detection.name = ?';
+        // queryParams = [`%${realname}%`, realname];
+        queryParams.push(`%${realname}%`)
+        queryParams.push(realname)
       }
+      if (dateStart) {
 
-      // Run the query and collect the results
-      // console.log(query)
+        query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
+
+        queryParams.push(dateStart);
+        if (!dateStop || dateStop === 'undefined/undefined/null') {
+          // console.log('test this1')
+          query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
+          dateStop = formatDateToDDMMYYYY(today);
+          queryParams.push(dateStop);
+          // console.log('Date Start: '+dateStart)
+          // console.log('Date Start: '+dateStop)
+          // console.log(realname)
+          // console.log(query)
+        } else if (dateStop) {
+          // console.log('test this2 ' + dateStop)
+          query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
+          queryParams.push(dateStop);
+        }
+      }
       const result = await mysqlDB.query(query, queryParams);
+
+      // console.log(result)
       if (result.length) {
         results = results.concat(result); // Concatenate the result arrays
       }
     }
-
+    // console.log(results)
     // console.log(results);
     res.json(results);
   } catch (err) {
