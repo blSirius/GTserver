@@ -166,6 +166,51 @@ app.get('/getUnknownDetect', async (req, res) => {
   }
 });
 
+app.post('/deletefolder', async (req, res) => {
+  const { folderName } = req.body;
+  // console.log(folderName)
+  if (!folderName) {
+      return res.status(400).send('No folder name provided');
+  }
+
+  const folderPath = path.join(process.cwd(), 'statusoff', folderName);
+
+  try {
+      // Check if the folder exists
+      // await fs.access(folderPath);
+      // Delete the folder
+      fs.rm(folderPath, { recursive:true }, (err) => { 
+        if(err){ 
+            console.error(err.message); 
+            return; 
+        } 
+        // console.log("File deleted successfully"); 
+          
+      
+    }) 
+      res.send(`Folder '${folderName}' deleted successfully.`);
+  } catch (error) {
+      console.error('Error deleting folder:', error);
+      res.status(500).send('Error deleting folder');
+  }
+});
+
+app.post('/deleteDB', async (req, res) => {
+  const { folderName } = req.body;
+  if (!folderName) {
+      return res.status(400).send('No folder name provided');
+  }
+
+  try {
+      query = 'DELETE FROM employee WHERE employee_name = ?'
+      res = mysqlDB.query(query,[folderName])
+      
+  } catch (error) {
+      console.error('Error deleting DB:', error);
+      res.status(500).send('Error deleting DB');
+  }
+});
+
 app.post('/renameFolder', async (req, res) => {
   const { oldName, newName } = req.body;
 
@@ -340,58 +385,55 @@ app.get('/getEmpDetect/:name', async (req, res) => {
   try {
     let results = [];
 
-    for (const name of names) {
-      // Trim the name to remove any whitespace
-      // console.log('Before Trim: ' + name)
-      console.log('NAMAA ' + name)
-      const trimmedName = name.split(' ');
-      const realname = trimmedName[0]
-      // console.log('After Trim: ' + realname)
-      // const trimmedName = trimmedName.trim();
-      // console.log(trimmedName)
-      let query = 'SELECT * FROM face_detection ';
-      let queryParams = [];
+    if (names) {
 
-      // Check if 'name' contains '.png' to decide on the query
-      if (realname.includes('.png') || realname.includes('.jpg')) {
-        query += 'WHERE face_detection.path = ?';
-        queryParams.push(realname);
-      } else {
-        query += 'WHERE face_detection.name LIKE ? OR face_detection.name = ?';
-        // queryParams = [`%${realname}%`, realname];
-        queryParams.push(`%${realname}%`)
-        queryParams.push(realname)
-      }
-      if (dateStart) {
-
-        query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
-
-        queryParams.push(dateStart);
-        if (!dateStop || dateStop === 'undefined/undefined/null') {
-          // console.log('test this1')
-          query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
-          dateStop = formatDateToDDMMYYYY(today);
-          queryParams.push(dateStop);
-          // console.log('Date Start: '+dateStart)
-          // console.log('Date Start: '+dateStop)
-          // console.log(realname)
-          // console.log(query)
-        } else if (dateStop) {
-          // console.log('test this2 ' + dateStop)
-          query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
-          queryParams.push(dateStop);
+      for (const name of names) {
+        const trimmedName = name.split(' ');
+        const realname = trimmedName[0]
+        let query = 'SELECT * FROM face_detection ';
+        let queryParams = [];
+        if (realname.includes('.png') || realname.includes('.jpg')) {
+          query += 'WHERE face_detection.path = ?';
+          queryParams.push(realname);
+        } else {
+          query += 'WHERE face_detection.name LIKE ?';
+          queryParams.push(`%${realname}%`)
         }
-      }
-      const result = await mysqlDB.query(query, queryParams);
 
-      // console.log(result)
-      if (result.length) {
-        results = results.concat(result); // Concatenate the result arrays
+        if (dateStart) {
+
+          query += ' AND STR_TO_DATE(date, "%d/%m/%Y") BETWEEN STR_TO_DATE(?, "%d/%m/%Y")';
+
+          queryParams.push(dateStart);
+          if (!dateStop || dateStop === 'undefined/undefined/null') {
+            // console.log('test this1')
+            query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
+            dateStop = formatDateToDDMMYYYY(today);
+            queryParams.push(dateStop);
+          } else if (dateStop) {
+            // console.log('test this2 ' + dateStop)
+            query += ' AND STR_TO_DATE(?, "%d/%m/%Y")';
+            queryParams.push(dateStop);
+          }
+        } else {
+          query += ' OR face_detection.name = ?';
+          queryParams.push(realname)
+        }
+
+        const result = await mysqlDB.query(query, queryParams);
+
+        console.log(result)
+        // res.json(results);
+        if (result.length) {
+          results = results.concat(result); 
+        }
+       
       }
+      res.json(results);
     }
     // console.log(results)
     // console.log(results);
-    res.json(results);
+    
   } catch (err) {
     console.error('Error fetching face detections:', err);
     res.status(500).json({ error: 'Internal Server Error' });
@@ -413,7 +455,50 @@ app.get('/getAllhistory', async (req, res) => {
     res.status(500).send('Internal Server Error');
   }
 })
+app.get('/getAllhistoryONOFF', async (req, res) => {
+  const today = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).slice(0, 10);
+  console.log(today)
+  let {date} = req.query
 
+  let dateUSE = typeof date === 'string' ? formatDateToDDMMYYYY(date) : null;
+  // console.log(formatDateToDDMMYYYY(date))
+  console.log('why?'+dateUSE)
+  function formatDateToDDMMYYYY(dateString) {
+    if (typeof dateString !== 'string' || !dateString) {
+      return null;
+    }
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  try {
+    if(!date){
+      query = 'SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name WHERE date = ? ORDER BY face_detection.id DESC'
+      // let queryParams = formatDateToDDMMYYYY(today)
+      // console.log('test1')
+      // console.log(queryParams)
+      const results = await mysqlDB.query(query,today);
+      res.json(results);
+    }else{
+      query = 'SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name WHERE date = ? ORDER BY face_detection.id DESC'
+      // let queryParams = formatDateToDDMMYYYY(dateUSE)
+      // console.log(queryParams)
+      const results = await mysqlDB.query(query,dateUSE);
+      console.log(results)
+      res.json(results);
+    }
+    // mysqlDB.query('SELECT * FROM face_detection JOIN employee ON face_detection.name = employee.employee_name ORDER BY DESC', (error, results, fields) => {
+    //   if (error) {
+    //     console.error(error);
+    //     return res.status(500).send('Internal Server Error');
+    //   }
+    //   // console.log(results);
+    //   // res.status(200).json(results); 
+    // });
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    res.status(500).send('Internal Server Error');
+  }
+})
 
 
 app.get('/getAllhistoryByDate', async (req, res) => {
@@ -461,9 +546,6 @@ app.get('/getAllhistoryByDate', async (req, res) => {
       const results = await mysqlDB.query(query, [queryParams[0], queryParams[1]]);
       res.json(results);
     }
-
-    // console.log('Query results:', results);
-
   } catch (error) {
     console.error('Error during database query:', error);
     res.status(500).send('Internal Server Error');
@@ -551,8 +633,10 @@ app.get('/api/detectedSingleFace', async (req, res) => {
 });
 
 app.use('/labeled_images', express.static('knownImgStore'));
-
+app.use('/getENV', express.static('envImgStore'));
 app.use('/getImageFolder', express.static('labels'));
+
+//???
 app.use('/getDetectedSingleFaceKnown', express.static('knownImgStore'));
 
 const getFilesInDirectory = async (dirPath) => {
